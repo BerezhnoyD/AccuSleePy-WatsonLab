@@ -1,5 +1,3 @@
-"""Neural network model definitions for sleep stage classification."""
-
 from torch import device, flatten, nn
 from torch import load as torch_load
 from torch import save as torch_save
@@ -42,7 +40,7 @@ class SSANN(nn.Module):
 
 
 def save_model(
-    model: SSANN | ModelWithTemperature,
+    model: SSANN,
     filename: str,
     epoch_length: int | float,
     epochs_per_img: int,

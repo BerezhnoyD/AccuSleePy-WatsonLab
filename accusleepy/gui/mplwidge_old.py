@@ -71,7 +71,6 @@ class MplWidget(QtWidgets.QWidget):
         spec: np.array,
         f: np.array,
         emg: np.array,
-        slow_wave: np.array,
         epochs_to_show: int,
         label_display_options: np.array,
         brain_state_set: BrainStateSet,
@@ -95,7 +94,7 @@ class MplWidget(QtWidgets.QWidget):
         self.upper_marker = list()
 
         # subplot layout
-        height_ratios = [2, 8, 2, 17, 10]
+        height_ratios = [2, 8, 2, 12, 13]
         gs1 = GridSpec(5, 1, hspace=0.02, height_ratios=height_ratios)
         gs2 = GridSpec(5, 1, hspace=0.4, height_ratios=height_ratios)
         axes = list()
@@ -148,11 +147,13 @@ class MplWidget(QtWidgets.QWidget):
             label_img, aspect="auto", origin="lower", interpolation="None"
         )
         # add patch to dim the display when creating an ROI
-        self.editing_patch = axes[3].add_patch(
+        self.editing_patch = axes[1].add_patch(
             Rectangle(
                 xy=(-0.5, -0.5),
                 width=n_epochs,
-                height=SPEC_UPPER_F*6,
+                height=np.max(label_display_options)
+                - np.min(label_display_options)
+                + 1,
                 color="white",
                 edgecolor=None,
                 alpha=0.4,
@@ -161,7 +162,7 @@ class MplWidget(QtWidgets.QWidget):
         )
         # add the ROI selection widget, but disable it until it's needed
         self.roi = RectangleSelector(
-            ax=axes[3],
+            ax=axes[1],
             onselect=roi_function,
             interactive=False,
             button=MouseButton(1),
@@ -169,7 +170,7 @@ class MplWidget(QtWidgets.QWidget):
         self.roi.set_active(False)
         # keep a reference to the ROI patch so we can change its color later
         # index 0 is the "editing_patch" created earlier
-        self.roi_patch = [c for c in axes[3].get_children() if type(c) is Rectangle][1]
+        self.roi_patch = [c for c in axes[1].get_children() if type(c) is Rectangle][1]
 
         # epoch marker subplot
         axes[2].set_ylim((0, 1))
@@ -214,25 +215,12 @@ class MplWidget(QtWidgets.QWidget):
         # EMG subplot
         axes[4].set_xticks([])
         axes[4].set_yticks([])
-        
-        
-        if slow_wave is not None:
-            axes[4].set_ylabel("SlowWave", rotation="horizontal", ha="right")
-            axes[4].plot(
-                slow_wave,
-                "k",
-                linewidth=0.5,
-            )
-        else:      
-            axes[4].set_ylabel("EMG", rotation="horizontal", ha="right")
-            axes[4].plot(
-                emg,
-                "k",
-                linewidth=0.5,
-            )
-            
-        
-        
+        axes[4].set_ylabel("EMG", rotation="horizontal", ha="right")
+        axes[4].plot(
+            emg,
+            "k",
+            linewidth=0.5,
+        )
 
         self.canvas.figure.subplots_adjust(
             left=SUBPLOT_LEFT_MARGIN,

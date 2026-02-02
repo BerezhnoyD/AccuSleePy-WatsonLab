@@ -1,6 +1,3 @@
-"""EEG/EMG signal processing, mixture z-scoring, and training image generation."""
-
-import logging
 import os
 import warnings
 
@@ -19,7 +16,6 @@ from accusleepy.constants import (
     EMG_COPIES,
     FILENAME_COL,
     LABEL_COL,
-    MIN_EPOCHS_PER_STATE,
     MIN_WINDOW_LEN,
     UPPER_FREQ,
     SPECTROGRAM_UPPER_FREQ,
@@ -29,15 +25,10 @@ from accusleepy.multitaper import spectrogram
 
 # note: scipy is lazily imported
 
-logger = logging.getLogger(__name__)
-
 
 def resample(
-    eeg: np.ndarray,
-    emg: np.ndarray,
-    sampling_rate: int | float,
-    epoch_length: int | float,
-) -> tuple[np.ndarray, np.ndarray, float]:
+    eeg: np.array, emg: np.array, sampling_rate: int | float, epoch_length: int | float
+) -> (np.array, np.array, float):
     """Resample recording so that epochs contain equal numbers of samples
 
     If the number of samples per epoch is not an integer, epoch-level calculations
@@ -71,11 +62,8 @@ def resample(
 
 
 def standardize_signal_length(
-    eeg: np.ndarray,
-    emg: np.ndarray,
-    sampling_rate: int | float,
-    epoch_length: int | float,
-) -> tuple[np.ndarray, np.ndarray]:
+    eeg: np.array, emg: np.array, sampling_rate: int | float, epoch_length: int | float
+) -> (np.array, np.array):
     """Truncate or pad EEG/EMG signals to have an integer number of epochs
 
     :param eeg: EEG signal
@@ -105,11 +93,8 @@ def standardize_signal_length(
 
 
 def resample_and_standardize(
-    eeg: np.ndarray,
-    emg: np.ndarray,
-    sampling_rate: int | float,
-    epoch_length: int | float,
-) -> tuple[np.ndarray, np.ndarray, float]:
+    eeg: np.array, emg: np.array, sampling_rate: int | float, epoch_length: int | float
+) -> (np.array, np.array, float):
     """Preprocess EEG and EMG signals
 
     Adjust the length and sampling rate of the EEG and EMG signals so that
@@ -132,12 +117,12 @@ def resample_and_standardize(
 
 
 def create_spectrogram(
-    eeg: np.ndarray,
+    eeg: np.array,
     sampling_rate: int | float,
     epoch_length: int | float,
-    time_bandwidth: int = 2,
-    n_tapers: int = 3,
-) -> tuple[np.ndarray, np.ndarray]:
+    time_bandwidth=2,
+    n_tapers=3,
+) -> (np.array, np.array):
     """Create an EEG spectrogram image
 
     :param eeg: EEG signal
@@ -183,11 +168,11 @@ def create_spectrogram(
 
 
 def get_emg_power(
-    emg: np.ndarray,
+    emg: np.array,
     sampling_rate: int | float,
     epoch_length: int | float,
     emg_filter: EMGFilter,
-) -> np.ndarray:
+) -> np.array:
     """Calculate EMG power for each epoch
 
     This applies a 20-50 Hz bandpass filter to the EMG,  calculates the RMS
@@ -217,18 +202,17 @@ def get_emg_power(
         [round(len(emg) / samples_per_epoch), samples_per_epoch],
     )
     rms = np.sqrt(np.mean(np.power(reshaped, 2), axis=1))
-    log_rms = np.log(rms)
-    log_rms[np.isinf(log_rms)] = 0
-    return log_rms
+
+    return np.log(rms)
 
 
 def create_eeg_emg_image(
-    eeg: np.ndarray,
-    emg: np.ndarray,
+    eeg: np.array,
+    emg: np.array,
     sampling_rate: int | float,
     epoch_length: int | float,
     emg_filter: EMGFilter,
-) -> np.ndarray:
+) -> np.array:
     """Stack EEG spectrogram and EMG power into an image
 
     This assumes that each epoch contains an integer number of samples and
@@ -263,8 +247,8 @@ def create_eeg_emg_image(
 
 
 def get_mixture_values(
-    img: np.ndarray, labels: np.ndarray, brain_state_set: BrainStateSet
-) -> tuple[np.ndarray, np.ndarray]:
+    img: np.array, labels: np.array, brain_state_set: BrainStateSet
+) -> (np.array, np.array):
     """Compute weighted feature means and SDs for mixture z-scoring
 
     The outputs of this function can be used to standardize features
@@ -305,12 +289,12 @@ def get_mixture_values(
 
 
 def mixture_z_score_img(
-    img: np.ndarray,
+    img: np.array,
     brain_state_set: BrainStateSet,
-    labels: np.ndarray | None = None,
-    mixture_means: np.ndarray | None = None,
-    mixture_sds: np.ndarray | None = None,
-) -> tuple[np.ndarray, bool]:
+    labels: np.array = None,
+    mixture_means: np.array = None,
+    mixture_sds: np.array = None,
+) -> np.array:
     """Perform mixture z-scoring on a combined EEG+EMG image
 
     If brain state labels are provided, they will be used to calculate
@@ -323,10 +307,10 @@ def mixture_z_score_img(
     :param labels: labels, in "class" format
     :param mixture_means: mixture means
     :param mixture_sds: mixture standard deviations
-    :return: tuple of (z-scored image, whether zero-variance features were detected)
+    :return:
     """
     if labels is None and (mixture_means is None or mixture_sds is None):
-        raise ValueError("must provide either labels or mixture means+SDs")
+        raise Exception("must provide either labels or mixture means+SDs")
     if labels is not None and ((mixture_means is not None) ^ (mixture_sds is not None)):
         warnings.warn("labels were given, mixture means / SDs will be ignored")
 
@@ -335,27 +319,14 @@ def mixture_z_score_img(
             img=img, labels=labels, brain_state_set=brain_state_set
         )
 
-    # replace zero SDs with epsilon to avoid division by zero
-    # This can occur when a feature has no variance (e.g., no EMG signal)
-    zero_sd_mask = mixture_sds == 0
-    had_zero_variance = np.any(zero_sd_mask)
-    if had_zero_variance:
-        n_zero = np.sum(zero_sd_mask)
-        logger.warning(
-            "%s feature(s) have zero variance and will be mapped to neutral values",
-            n_zero,
-        )
-        mixture_sds = mixture_sds.copy()
-        mixture_sds[zero_sd_mask] = 1e-10
-
     img = ((img.T - mixture_means) / mixture_sds).T
     img = (img + ABS_MAX_Z_SCORE) / (2 * ABS_MAX_Z_SCORE)
     img = np.clip(img, 0, 1)
 
-    return img, had_zero_variance
+    return img
 
 
-def format_img(img: np.ndarray, epochs_per_img: int, add_padding: bool) -> np.ndarray:
+def format_img(img: np.array, epochs_per_img: int, add_padding: bool) -> np.array:
     """Adjust the format of an EEG+EMG image
 
     This function converts the values in a combined EEG+EMG image to uint8.
@@ -398,18 +369,9 @@ def create_training_images(
     model_type: str,
     calibration_fraction: float,
     emg_filter: EMGFilter,
-) -> tuple[list[int], np.ndarray, bool]:
-    """Create training dataset and calculate class balance
+) -> list[int]:
+    """Create training dataset
 
-    This function creates images that can be used to train the
-    SSANN model, as well as files that describe the training data
-    (optionally split into training and calibration sets).
-    It returns a list of recordings that could not be processed,
-    the class balance of the usable training data, and a flag if any
-    recordings had features with 0 variance.
-
-    For each epoch, the model expects an image containing the
-    EEG spectrogram and EMG power for several surrounding epochs.
     By default, the current epoch is located in the central column
     of pixels in each image. For real-time scoring applications,
     the current epoch is at the right edge of each image.
@@ -422,7 +384,8 @@ def create_training_images(
     :param model_type: default or real-time
     :param calibration_fraction: fraction of training data to use for calibration
     :param emg_filter: EMG filter parameters
-    :return: tuple of (failed recording names, training class balance, had zero-variance)
+    :return: list of the names of any recordings that could not
+            be used to create training images.
     """
     # recordings that had to be skipped
     failed_recordings = list()
@@ -430,38 +393,11 @@ def create_training_images(
     filenames = list()
     # all valid labels from all valid recordings
     all_labels = list()
-    # track if any recording had zero-variance features
-    any_zero_variance = False
     # try to load each recording and create training images
     for i in trange(len(recordings)):
         recording = recordings[i]
         try:
-            labels, _ = load_labels(recording.label_file)
-        except Exception:
-            logger.exception("Could not load labels for recording %s", recording.name)
-            failed_recordings.append(recording.name)
-            continue
-
-        # Check that each scored brain state has sufficient observations
-        # Ideally, we could use mixture means/SDs from another recording...
-        insufficient_labels = False
-        for brain_state in brain_state_set.brain_states:
-            if brain_state.is_scored:
-                count = np.sum(labels == brain_state.digit)
-                if count < MIN_EPOCHS_PER_STATE:
-                    logger.warning(
-                        "Recording %s can't be used: insufficient labels for class '%s'",
-                        recording.name,
-                        brain_state.name,
-                    )
-                    failed_recordings.append(recording.name)
-                    insufficient_labels = True
-                    break
-        if insufficient_labels:
-            continue
-
-        try:
-            eeg, emg = load_recording(recording.recording_file)
+            eeg, emg, sl_wave = load_recording(recording.recording_file)
             sampling_rate = recording.sampling_rate
             eeg, emg, sampling_rate = resample_and_standardize(
                 eeg=eeg,
@@ -470,17 +406,19 @@ def create_training_images(
                 epoch_length=epoch_length,
             )
 
+            labels, _ = load_labels(recording.label_file)
             labels = brain_state_set.convert_digit_to_class(labels)
             img = create_eeg_emg_image(
                 eeg, emg, sampling_rate, epoch_length, emg_filter
             )
-            img, had_zero_variance = mixture_z_score_img(
+            
+            img = mixture_z_score_img(
                 img=img, brain_state_set=brain_state_set, labels=labels
             )
-            if had_zero_variance:
-                any_zero_variance = True
             img = format_img(img=img, epochs_per_img=epochs_per_img, add_padding=True)
-
+            
+            print('Step4')
+            
             # the model type determines which epochs are used in each image
             if model_type == DEFAULT_MODEL_TYPE:
                 # here, j is the index of the current epoch in 'labels'
@@ -507,10 +445,8 @@ def create_training_images(
                     all_labels.append(labels[j])
                     Image.fromarray(im).save(os.path.join(output_path, filename))
 
-        except Exception:
-            logger.exception(
-                "Failed to create training images for recording %s", recording.name
-            )
+        except Exception as e:
+            print(e)
             failed_recordings.append(recording.name)
 
     annotations = pd.DataFrame({FILENAME_COL: filenames, LABEL_COL: all_labels})
@@ -527,18 +463,11 @@ def create_training_images(
             os.path.join(output_path, CALIBRATION_ANNOTATION_FILENAME),
             index=False,
         )
-        training_labels = training_set[LABEL_COL].values
     else:
         # annotation file contains info on all training images
         annotations.to_csv(
             os.path.join(output_path, ANNOTATIONS_FILENAME),
             index=False,
         )
-        training_labels = np.array(all_labels)
 
-    # compute class balance from training set
-    class_counts = np.bincount(training_labels, minlength=brain_state_set.n_classes)
-    training_class_balance = class_counts / class_counts.sum()
-    logger.info("Training set class balance: %s", training_class_balance)
-
-    return failed_recordings, training_class_balance, any_zero_variance
+    return failed_recordings

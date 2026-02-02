@@ -1,5 +1,3 @@
-"""Application-wide constants and default settings."""
-
 import numpy as np
 
 # probably don't change these unless you really need to
@@ -10,6 +8,7 @@ MIXTURE_SD_COL = "mixture_sd"
 # recording file columns
 EEG_COL = "eeg"
 EMG_COL = "emg"
+SL_WAVE_COL = "slow_wave"
 # label file columns
 BRAIN_STATE_COL = "brain_state"
 CONFIDENCE_SCORE_COL = "confidence_score"
@@ -20,9 +19,6 @@ MESSAGE_BOX_MAX_DEPTH = 200
 ABS_MAX_Z_SCORE = 3.5
 # upper frequency limit when generating EEG spectrograms
 SPECTROGRAM_UPPER_FREQ = 64
-# minimum number of epochs per brain state needed to create
-# a calibration file or use a recording for model training
-MIN_EPOCHS_PER_STATE = 3
 
 
 # very unlikely you will want to change values from here onwards
@@ -74,7 +70,6 @@ EMG_FILTER_KEY = "emg_filter"
 HYPERPARAMETERS_KEY = "hyperparameters"
 EPOCHS_TO_SHOW_KEY = "epochs_to_show"
 AUTOSCROLL_KEY = "autoscroll_state"
-DELETE_TRAINING_IMAGES_KEY = "delete_training_images"
 
 # default values
 # default UI settings
@@ -90,7 +85,6 @@ DEFAULT_BATCH_SIZE = 64
 DEFAULT_LEARNING_RATE = 1e-3
 DEFAULT_MOMENTUM = 0.9
 DEFAULT_TRAINING_EPOCHS = 6
-DEFAULT_DELETE_TRAINING_IMAGES_STATE = True
 # default manual scoring settings
 DEFAULT_EPOCHS_TO_SHOW = 5
 DEFAULT_AUTOSCROLL_STATE = False

@@ -1,5 +1,3 @@
-"""Model training and brain state classification."""
-
 import os
 
 import numpy as np
@@ -18,6 +16,7 @@ from accusleepy.models import SSANN
 from accusleepy.signal_processing import (
     create_eeg_emg_image,
     format_img,
+    get_mixture_values,
     mixture_z_score_img,
 )
 
@@ -85,7 +84,7 @@ def create_dataloader(
 def train_ssann(
     annotations_file: str,
     img_dir: str,
-    training_class_balance: np.ndarray,
+    mixture_weights: np.array,
     n_classes: int,
     hyperparameters: Hyperparameters,
 ) -> SSANN:
@@ -93,7 +92,7 @@ def train_ssann(
 
     :param annotations_file: file with information on each training image
     :param img_dir: training image location
-    :param training_class_balance: proportion of each class in the training set
+    :param mixture_weights: typical relative frequencies of brain states
     :param n_classes: number of classes the model will learn
     :param hyperparameters: model training hyperparameters
     :return: trained Sleep Scoring Artificial Neural Network model
@@ -110,7 +109,7 @@ def train_ssann(
     model.train()
 
     # correct for class imbalance
-    weight = torch.tensor((training_class_balance**-1).astype("float32")).to(device)
+    weight = torch.tensor((mixture_weights**-1).astype("float32")).to(device)
 
     criterion = nn.CrossEntropyLoss(weight=weight)
     optimizer = optim.SGD(
@@ -134,16 +133,16 @@ def train_ssann(
 
 def score_recording(
     model: SSANN,
-    eeg: np.ndarray,
-    emg: np.ndarray,
-    mixture_means: np.ndarray,
-    mixture_sds: np.ndarray,
+    eeg: np.array,
+    emg: np.array,
+    mixture_means: np.array,
+    mixture_sds: np.array,
     sampling_rate: int | float,
     epoch_length: int | float,
     epochs_per_img: int,
     brain_state_set: BrainStateSet,
     emg_filter: EMGFilter,
-) -> tuple[np.ndarray, np.ndarray]:
+) -> np.array:
     """Use classification model to get brain state labels for a recording
 
     This assumes signals have been preprocessed to contain an integer
@@ -168,7 +167,7 @@ def score_recording(
 
     # create and scale eeg+emg spectrogram
     img = create_eeg_emg_image(eeg, emg, sampling_rate, epoch_length, emg_filter)
-    img, _ = mixture_z_score_img(
+    img = mixture_z_score_img(
         img,
         mixture_means=mixture_means,
         mixture_sds=mixture_sds,
@@ -197,10 +196,10 @@ def score_recording(
 
 def example_real_time_scoring_function(
     model: SSANN,
-    eeg: np.ndarray,
-    emg: np.ndarray,
-    mixture_means: np.ndarray,
-    mixture_sds: np.ndarray,
+    eeg: np.array,
+    emg: np.array,
+    mixture_means: np.array,
+    mixture_sds: np.array,
     sampling_rate: int | float,
     epoch_length: int | float,
     epochs_per_img: int,
@@ -245,7 +244,7 @@ def example_real_time_scoring_function(
 
     # create and scale eeg+emg spectrogram
     img = create_eeg_emg_image(eeg, emg, sampling_rate, epoch_length, emg_filter)
-    img, _ = mixture_z_score_img(
+    img = mixture_z_score_img(
         img,
         mixture_means=mixture_means,
         mixture_sds=mixture_sds,
@@ -265,3 +264,38 @@ def example_real_time_scoring_function(
 
     label = int(brain_state_set.convert_class_to_digit(predicted.cpu().numpy())[0])
     return label
+
+
+def create_calibration_file(
+    filename: str,
+    eeg: np.array,
+    emg: np.array,
+    labels: np.array,
+    sampling_rate: int | float,
+    epoch_length: int | float,
+    brain_state_set: BrainStateSet,
+    emg_filter: EMGFilter,
+) -> None:
+    """Create file of calibration data for a subject
+
+    This assumes signals have been preprocessed to contain an integer
+    number of epochs.
+
+    :param filename: filename for the calibration file
+    :param eeg: EEG signal
+    :param emg: EMG signal
+    :param labels: brain state labels, as digits
+    :param sampling_rate: sampling rate, in Hz
+    :param epoch_length: epoch length, in seconds
+    :param brain_state_set: set of brain state options
+    :param emg_filter: EMG filter parameters
+    """
+    img = create_eeg_emg_image(eeg, emg, sampling_rate, epoch_length, emg_filter)
+    mixture_means, mixture_sds = get_mixture_values(
+        img=img,
+        labels=brain_state_set.convert_digit_to_class(labels),
+        brain_state_set=brain_state_set,
+    )
+    pd.DataFrame(
+        {c.MIXTURE_MEAN_COL: mixture_means, c.MIXTURE_SD_COL: mixture_sds}
+    ).to_csv(filename, index=False)

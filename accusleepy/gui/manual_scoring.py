@@ -1,13 +1,11 @@
-"""AccuSleePy manual scoring GUI.
+# AccuSleePy manual scoring GUI
+# Icon sources:
+#   Arkinasi, https://www.flaticon.com/authors/arkinasi
+#   kendis lasman, https://www.flaticon.com/packs/ui-79
 
-Icon sources:
-    Arkinasi, https://www.flaticon.com/authors/arkinasi
-    kendis lasman, https://www.flaticon.com/packs/ui-79
-"""
 
 import copy
 import os
-import time
 from dataclasses import dataclass
 from functools import partial
 from types import SimpleNamespace
@@ -84,10 +82,9 @@ UNDO_LIMIT = 1000
 # brightness scaling factors for the spectrogram
 BRIGHTER_SCALE_FACTOR = 0.96
 DIMMER_SCALE_FACTOR = 1.07
-# zoom factor for upper plots - larger values = bigger changes
-ZOOM_FACTOR = 0.1
-# rate limit for zoom events triggered by scrolling
-MAX_SCROLL_EVENTS_PER_SEC = 24
+# zoom factor for upper plots
+ZOOM_IN_FACTOR = 0.45
+ZOOM_OUT_FACTOR = 1.017
 
 
 @dataclass
@@ -106,6 +103,7 @@ class ManualScoringWindow(QDialog):
         self,
         eeg: np.array,
         emg: np.array,
+        sl_wave: np.array,
         label_file: str,
         labels: np.array,
         confidence_scores: np.array,
@@ -129,6 +127,7 @@ class ManualScoringWindow(QDialog):
         self.label_file = label_file
         self.eeg = eeg
         self.emg = emg
+        self.slow_wave = sl_wave
         self.labels = labels
         self.confidence_scores = confidence_scores
         self.sampling_rate = sampling_rate
@@ -142,10 +141,18 @@ class ManualScoringWindow(QDialog):
         self.ui.setupUi(self)
         self.setWindowTitle("AccuSleePy manual scoring window")
 
-        config = load_config()
-        self.brain_state_set = config.brain_state_set
-        self.epochs_to_show = config.epochs_to_show
-        self.autoscroll_state = config.autoscroll_state
+        # load set of valid brain states
+        (
+            self.brain_state_set,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            self.epochs_to_show,
+            self.autoscroll_state,
+        ) = load_config()
 
         # find the set of y-axis locations of valid brain state labels
         self.label_display_options = convert_labels(
@@ -157,14 +164,14 @@ class ManualScoringWindow(QDialog):
         self.ui.upperfigure.epoch_length = self.epoch_length
         self.ui.lowerfigure.epoch_length = self.epoch_length
 
-        # get EEG spectrogram and its frequency axis
-        spectrogram, spectrogram_frequencies = create_spectrogram(
+        # get EEG self.spectrogram and its frequency axis
+        self.spectrogram, self.spectrogram_frequencies = create_spectrogram(
             self.eeg, self.sampling_rate, self.epoch_length
         )
 
         # calculate RMS of EMG for each epoch and apply a ceiling
-        self.upper_emg = create_upper_emg_signal(
-            self.emg, self.sampling_rate, self.epoch_length, self.emg_filter
+        self.upper_emg, self.slow_wave = create_upper_emg_signal(
+            self.emg, self.sampling_rate, self.epoch_length, self.emg_filter, self.slow_wave
         )
 
         # center and scale the EEG and EMG signals to fit the display
@@ -190,9 +197,10 @@ class ManualScoringWindow(QDialog):
             self.label_img,
             self.confidence_scores,
             self.confidence_img,
-            spectrogram,
-            spectrogram_frequencies,
+            self.spectrogram,
+            self.spectrogram_frequencies,
             self.upper_emg,
+            self.slow_wave,
             self.epochs_to_show,
             self.label_display_options,
             self.brain_state_set,
@@ -355,10 +363,8 @@ class ManualScoringWindow(QDialog):
         )
         keypress_redo.activated.connect(self.redo)
 
-        # user input: mouse events
+        # user input: clicks
         self.ui.upperfigure.canvas.mpl_connect("button_press_event", self.click_to_jump)
-        self.ui.upperfigure.canvas.mpl_connect("scroll_event", self.scroll_zoom)
-        self.now_zooming = False  # impose timeout on zoom events
 
         # user input: buttons
         self.ui.savebutton.clicked.connect(self.save)
@@ -488,7 +494,7 @@ class ManualScoringWindow(QDialog):
 
     def closeEvent(self, event: QCloseEvent) -> None:
         """Check if there are unsaved changes before closing"""
-        if not np.array_equal(self.labels, self.last_saved_labels):
+        if not all(self.labels == self.last_saved_labels):
             result = QMessageBox.question(
                 self,
                 "Unsaved changes",
@@ -614,7 +620,7 @@ class ManualScoringWindow(QDialog):
 
     def save(self) -> None:
         """Save brain state labels to file"""
-        save_labels(self.labels, self.label_file)
+        save_labels(self.labels, self.label_file, self.spectrogram, self.spectrogram_frequencies)
         self.last_saved_labels = copy.deepcopy(self.labels)
 
     def update_spectrogram_brightness(self, direction: str) -> None:
@@ -673,8 +679,6 @@ class ManualScoringWindow(QDialog):
             self.label_display_options,
         )
         self.update_figures()
-        # upper plot x limits might need to change
-        self.zoom_x(direction=None)
 
     def update_signal_offset(self, signal: str, direction: str) -> None:
         """Shift EEG or EMG up or down
@@ -720,19 +724,39 @@ class ManualScoringWindow(QDialog):
             (self.upper_left_epoch, self.upper_right_epoch + 1)
         )
 
-    def zoom_x(self, direction: str | None) -> None:
+    def zoom_x(self, direction: str) -> None:
         """Change upper figure x-axis zoom level
 
-        :param direction: in, out, reset, or None
+        :param direction: in, out, or reset
         """
-        self.upper_left_epoch, self.upper_right_epoch = find_new_x_limits(
-            direction=direction,
-            left_epoch=self.upper_left_epoch,
-            right_epoch=self.upper_right_epoch,
-            min_n_shown=self.epochs_to_show,
-            total_epochs=self.n_epochs,
-            selected_epoch=self.epoch,
-        )
+        epochs_shown = self.upper_right_epoch - self.upper_left_epoch + 1
+        if direction == ZOOM_IN:
+            self.upper_left_epoch = max(
+                [
+                    self.upper_left_epoch,
+                    round(self.epoch - ZOOM_IN_FACTOR * epochs_shown),
+                ]
+            )
+
+            self.upper_right_epoch = min(
+                [
+                    self.upper_right_epoch,
+                    round(self.epoch + ZOOM_IN_FACTOR * epochs_shown),
+                ]
+            )
+
+        elif direction == ZOOM_OUT:
+            self.upper_left_epoch = max(
+                [0, round(self.epoch - ZOOM_OUT_FACTOR * epochs_shown)]
+            )
+
+            self.upper_right_epoch = min(
+                [self.n_epochs - 1, round(self.epoch + ZOOM_OUT_FACTOR * epochs_shown)]
+            )
+
+        else:  # reset
+            self.upper_left_epoch = 0
+            self.upper_right_epoch = self.n_epochs - 1
         self.adjust_upper_figure_x_limits()
         self.ui.upperfigure.canvas.draw()
 
@@ -793,11 +817,8 @@ class ManualScoringWindow(QDialog):
         # update upper plot if needed
         upper_epochs_shown = self.upper_right_epoch - self.upper_left_epoch + 1
         if (
-            (
-                self.epoch
-                > self.upper_left_epoch + (1 - SCROLL_BOUNDARY) * upper_epochs_shown
-                or self.epoch + (self.epochs_to_show - 1) / 2 > self.upper_right_epoch
-            )
+            self.epoch
+            > self.upper_left_epoch + (1 - SCROLL_BOUNDARY) * upper_epochs_shown
             and self.upper_right_epoch < (self.n_epochs - 1)
             and direction == DIRECTION_RIGHT
         ):
@@ -805,11 +826,7 @@ class ManualScoringWindow(QDialog):
             self.upper_right_epoch += 1
             self.adjust_upper_figure_x_limits()
         elif (
-            (
-                self.epoch
-                < self.upper_left_epoch + SCROLL_BOUNDARY * upper_epochs_shown
-                or self.epoch - (self.epochs_to_show - 1) / 2 < self.upper_left_epoch
-            )
+            self.epoch < self.upper_left_epoch + SCROLL_BOUNDARY * upper_epochs_shown
             and self.upper_left_epoch > 0
             and direction == DIRECTION_LEFT
         ):
@@ -978,23 +995,6 @@ class ManualScoringWindow(QDialog):
 
         self.update_figures()
 
-    def scroll_zoom(self, event) -> None:
-        """Zoom on mouse scroll events"""
-        if self.now_zooming:
-            return
-
-        self.now_zooming = True
-        start_time = time.time()
-        if event.button == "up":
-            self.zoom_x(direction=ZOOM_IN)
-        else:
-            self.zoom_x(direction=ZOOM_OUT)
-        end_time = time.time()
-        time_elapsed = end_time - start_time
-        if time_elapsed < 1 / MAX_SCROLL_EVENTS_PER_SEC:
-            time.sleep(1 / MAX_SCROLL_EVENTS_PER_SEC - time_elapsed)
-        self.now_zooming = False
-
 
 def convert_labels(labels: np.array, style: str) -> np.array:
     """Convert labels between "display" and "digit" formats
@@ -1021,7 +1021,7 @@ def convert_labels(labels: np.array, style: str) -> np.array:
         labels = [i if i != 0 else UNDEFINED_LABEL for i in labels]
         return np.array([i if i != 10 else 0 for i in labels])
     else:
-        raise ValueError(f"style must be '{DISPLAY_FORMAT}' or '{DIGIT_FORMAT}'")
+        raise Exception(f"style must be '{DISPLAY_FORMAT}' or '{DIGIT_FORMAT}'")
 
 
 def create_label_img(labels: np.array, label_display_options: np.array) -> np.array:
@@ -1045,7 +1045,7 @@ def create_label_img(labels: np.array, label_display_options: np.array) -> np.ar
     )
     for i, label in enumerate(labels):
         if label > 0:
-            label_img[label - smallest_display_label, i, :] = LABEL_CMAP[label]
+            label_img[int(label) - smallest_display_label, i, :] = LABEL_CMAP[int(label)]
         else:
             # label is undefined
             label_img[:, i] = np.array([0, 0, 0, 1])
@@ -1072,6 +1072,7 @@ def create_upper_emg_signal(
     sampling_rate: int | float,
     epoch_length: int | float,
     emg_filter: EMGFilter,
+    slow_wave: None
 ) -> np.array:
     """Calculate RMS of EMG for each epoch and apply a ceiling
 
@@ -1081,6 +1082,33 @@ def create_upper_emg_signal(
     :param emg_filter: EMG filter parameters
     :return: processed EMG signal
     """
+    if slow_wave is not None:  
+        samples_per_epoch = round(sampling_rate * epoch_length)
+        
+        # 1. Calculate how many "extra" samples exist
+        remainder = len(slow_wave) % samples_per_epoch
+
+        # 2. Slice them off
+        if remainder != 0:
+            # Use negative indexing to stop before the remainder
+            slow_wave = slow_wave[:-remainder] 
+        else:
+            slow_wave = slow_wave
+        
+        
+        reshaped = np.reshape(
+            slow_wave,
+            [round(len(slow_wave) / samples_per_epoch), samples_per_epoch],
+        )
+        slow_wave = np.log(np.mean(reshaped, axis=1))
+        
+        slow_wave_clip = np.clip(slow_wave, np.percentile(slow_wave, 0.1), np.mean(slow_wave) + np.std(slow_wave) * 2.5)
+        
+    else:          
+        slow_wave_clip = None
+           
+        
+    
     emg_rms = get_emg_power(
         emg,
         sampling_rate,
@@ -1089,7 +1117,10 @@ def create_upper_emg_signal(
     )
     return np.clip(
         emg_rms, np.percentile(emg_rms, 0.1), np.mean(emg_rms) + np.std(emg_rms) * 2.5
-    )
+    ), slow_wave_clip
+    
+    
+    
 
 
 def transform_eeg_emg(eeg: np.array, emg: np.array) -> (np.array, np.array):
@@ -1106,55 +1137,3 @@ def transform_eeg_emg(eeg: np.array, emg: np.array) -> (np.array, np.array):
     eeg = eeg / np.percentile(eeg, 95) / 2.2
     emg = emg / np.percentile(emg, 95) / 2.2
     return eeg, emg
-
-
-def find_new_x_limits(
-    direction: str | None,
-    left_epoch: int,
-    right_epoch: int,
-    total_epochs: int,
-    min_n_shown: int,
-    selected_epoch: int,
-) -> (int, int):
-    """Calculate new plot x limits to allow zooming
-
-    :param direction: in, out, reset, or None
-    :param left_epoch: index of current leftmost epoch
-    :param right_epoch: index of current rightmost epoch
-    :param total_epochs: total number of epochs in the recording
-    :param min_n_shown: minimum number of epochs to display
-    :param selected_epoch: currently selected epoch
-    """
-    # number of epochs currently displayed in the upper plots
-    current_n_shown = right_epoch - left_epoch + 1
-    if direction == ZOOM_IN:
-        # can't display fewer than the number of epochs in the lower plot
-        new_n_shown = max([min_n_shown, round(current_n_shown * (1 - ZOOM_FACTOR))])
-    elif direction == ZOOM_OUT:
-        # can't display more than the total number of epochs
-        new_n_shown = min([total_epochs, round(current_n_shown / (1 - ZOOM_FACTOR))])
-    elif direction == ZOOM_RESET:
-        left_epoch = 0
-        right_epoch = total_epochs - 1
-        return left_epoch, right_epoch
-    else:  # just recalculating if min_n_shown has changed
-        new_n_shown = int(
-            np.clip(current_n_shown, a_min=min_n_shown, a_max=total_epochs)
-        )
-
-    # count epochs to show on either side of the selected epoch
-    epochs_on_left_side = int(np.ceil((new_n_shown - 1) / 2))
-    epochs_on_right_side = new_n_shown - epochs_on_left_side - 1
-    if selected_epoch - epochs_on_left_side < 0:
-        # can't go further left than 0
-        left_epoch = 0
-        right_epoch = new_n_shown - 1
-    elif selected_epoch + epochs_on_right_side >= total_epochs:
-        # can't go further right than the total number of epochs
-        left_epoch = total_epochs - new_n_shown
-        right_epoch = total_epochs - 1
-    else:
-        left_epoch = selected_epoch - epochs_on_left_side
-        right_epoch = selected_epoch + epochs_on_right_side
-
-    return left_epoch, right_epoch

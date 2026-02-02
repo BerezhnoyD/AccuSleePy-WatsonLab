@@ -1,14 +1,8 @@
 {
     "brain_states": [
         {
-            "name": "REM",
-            "digit": 1,
-            "is_scored": true,
-            "frequency": 0.1
-        },
-        {
             "name": "Wake",
-            "digit": 2,
+            "digit": 1,
             "is_scored": true,
             "frequency": 0.35
         },
@@ -17,9 +11,15 @@
             "digit": 3,
             "is_scored": true,
             "frequency": 0.55
+        },
+        {
+            "name": "REM",
+            "digit": 5,
+            "is_scored": true,
+            "frequency": 0.1
         }
     ],
-    "default_epoch_length": 2.5,
+    "default_epoch_length": 1.0,
     "default_overwrite_setting": false,
     "save_confidence_setting": true,
     "default_min_bout_length": 5.0,
@@ -35,6 +35,5 @@
         "training_epochs": 6
     },
     "epochs_to_show": 5,
-    "autoscroll_state": false,
-    "delete_training_images": true
+    "autoscroll_state": false
 }
