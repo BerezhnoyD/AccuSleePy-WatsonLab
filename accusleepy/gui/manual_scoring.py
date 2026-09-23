@@ -9,6 +9,8 @@ import os
 from dataclasses import dataclass
 from functools import partial
 from types import SimpleNamespace
+import matplotlib
+matplotlib.use('QtAgg')
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -36,6 +38,10 @@ from accusleepy.fileio import load_config, save_labels, EMGFilter
 from accusleepy.gui.mplwidget import resample_x_ticks
 from accusleepy.gui.viewer_window import Ui_ViewerWindow
 from accusleepy.signal_processing import create_spectrogram, get_emg_power
+
+
+plt.style.use('fast')
+
 
 # colormap for displaying brain state labels
 # the first entry represents the "undefined" state

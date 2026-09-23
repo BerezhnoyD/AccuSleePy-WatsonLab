@@ -17,12 +17,18 @@
             "digit": 5,
             "is_scored": true,
             "frequency": 0.1
+        },
+        {
+            "name": "Artefact",
+            "digit": 6,
+            "is_scored": false,
+            "frequency": 0.0
         }
     ],
     "default_epoch_length": 1.0,
     "default_overwrite_setting": false,
     "save_confidence_setting": true,
-    "default_min_bout_length": 5.0,
+    "default_min_bout_length": 3.0,
     "emg_filter": {
         "order": 8,
         "bp_lower": 20.0,

@@ -230,6 +230,7 @@ class MplWidget(QtWidgets.QWidget):
                 "k",
                 linewidth=0.5,
             )
+            #axes[4].set_ylim(bottom=0)
             
         
         

@@ -17,7 +17,7 @@ MESSAGE_BOX_MAX_DEPTH = 200
 # clip mixture z-scores above and below this level
 # in the matlab implementation, 4.5 was used
 ABS_MAX_Z_SCORE = 3.5
-# upper frequency limit when generating EEG spectrograms
+# upper frequency limit when generating EEG spectrograms (64 default)
 SPECTROGRAM_UPPER_FREQ = 64
 
 
@@ -43,7 +43,7 @@ IMAGE_HEIGHT = (
 DEFAULT_MODEL_TYPE = "default"  # current epoch is centered
 REAL_TIME_MODEL_TYPE = "real-time"  # current epoch on the right
 # valid filetypes
-RECORDING_FILE_TYPES = [".parquet", ".csv"]
+RECORDING_FILE_TYPES = [".parquet", ".csv", ".nwb"]
 LABEL_FILE_TYPE = ".csv"
 CALIBRATION_FILE_TYPE = ".csv"
 MODEL_FILE_TYPE = ".pth"
